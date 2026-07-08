@@ -4,9 +4,6 @@ build/
 # Managed components (downloaded dependencies)
 managed_components/
 
-# Dependency lock
-dependencies.lock
-
 # OS files
 .DS_Store
 Thumbs.db
