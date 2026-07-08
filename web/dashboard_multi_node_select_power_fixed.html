@@ -1,0 +1,1910 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ESP32-S3 TDMA 自组网监测平台</title>
+
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+
+  <style>
+
+    * { box-sizing: border-box; }
+
+    :root {
+      --bg: #eef7ff;
+      --bg2: #ffffff;
+      --card: rgba(255, 255, 255, 0.82);
+      --card-solid: #ffffff;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: rgba(59, 130, 246, 0.18);
+      --blue: #2563eb;
+      --cyan: #06b6d4;
+      --green: #16a34a;
+      --yellow: #f59e0b;
+      --red: #ef4444;
+      --shadow: 0 18px 45px rgba(37, 99, 235, 0.14);
+    }
+
+    body {
+      margin: 0;
+      padding: 26px;
+      font-family: Arial, "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 8% 8%, rgba(14, 165, 233, 0.24) 0, rgba(14, 165, 233, 0.05) 26%, transparent 44%),
+        radial-gradient(circle at 88% 12%, rgba(99, 102, 241, 0.20) 0, rgba(99, 102, 241, 0.05) 24%, transparent 45%),
+        radial-gradient(circle at 75% 82%, rgba(34, 211, 238, 0.18) 0, rgba(34, 211, 238, 0.04) 25%, transparent 48%),
+        linear-gradient(135deg, #f8fbff 0%, #eef7ff 42%, #eaf6ff 100%);
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(90deg, rgba(37, 99, 235, 0.06) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(37, 99, 235, 0.06) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: linear-gradient(to bottom, rgba(0,0,0,.42), transparent 75%);
+      z-index: -2;
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      width: 460px;
+      height: 460px;
+      right: -150px;
+      top: -130px;
+      border: 2px solid rgba(37, 99, 235, 0.14);
+      border-radius: 50%;
+      box-shadow: inset 0 0 0 44px rgba(14, 165, 233, 0.035), inset 0 0 0 92px rgba(99, 102, 241, 0.025);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .page { max-width: 1600px; margin: 0 auto; }
+
+    .header {
+      margin-bottom: 24px;
+      padding: 24px 28px 22px;
+      border-radius: 34px 18px 34px 18px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(236,248,255,0.78));
+      border: 1px solid rgba(37, 99, 235, 0.16);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .header::after {
+      content: "时隙调度探索者\A乐鑫 ESP32-S3";
+      position: absolute;
+      right: 28px;
+      top: 20px;
+      color: #2563eb;
+      font-weight: 900;
+      letter-spacing: 1.5px;
+      font-size: 20px;
+      line-height: 1.35;
+      white-space: pre;
+      text-align: right;
+    }
+
+    .header h1 {
+      margin: 0 0 8px;
+      font-size: 36px;
+      color: #0f172a;
+      letter-spacing: 0.5px;
+    }
+
+    .header p { margin: 0; color: #475569; font-size: 17px; }
+
+    .mqtt-status {
+      margin-top: 16px;
+      padding: 12px 16px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.72);
+      border: 1px solid rgba(37, 99, 235, 0.18);
+      color: #1e293b;
+      box-shadow: 0 8px 22px rgba(37, 99, 235, 0.08);
+      width: fit-content;
+      max-width: 100%;
+    }
+
+    .connected { background: #dcfce7; color: #166534; border-color: #86efac; }
+    .error { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+
+    .overview {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+      margin-bottom: 24px;
+    }
+
+    .metric-card {
+      background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(239,249,255,0.82));
+      border: 1px solid rgba(37, 99, 235, 0.14);
+      border-radius: 26px 16px 30px 18px;
+      padding: 20px;
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+      transition: transform .2s ease, box-shadow .2s ease;
+    }
+
+    .metric-card:nth-child(2) { transform: translateY(10px); border-radius: 16px 30px 18px 26px; }
+    .metric-card:nth-child(3) { transform: translateY(-4px); border-radius: 30px 18px 26px 16px; }
+    .metric-card:nth-child(4) { transform: translateY(8px); border-radius: 18px 26px 16px 30px; }
+    .metric-card:hover { transform: translateY(-3px); box-shadow: 0 22px 52px rgba(37, 99, 235, 0.18); }
+
+    .metric-card::after {
+      content: "";
+      position: absolute;
+      width: 120px;
+      height: 120px;
+      right: -42px;
+      top: -46px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(14,165,233,.20), transparent 68%);
+    }
+
+    .metric-title { color: #475569; font-size: 15px; margin-bottom: 10px; }
+    .metric-value { font-size: 34px; font-weight: 900; color: #0f172a; }
+    .metric-unit { font-size: 16px; color: #64748b; margin-left: 4px; }
+    .metric-state { margin-top: 10px; font-size: 14px; color: #16a34a; }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 24px;
+      align-items: stretch;
+    }
+
+    .panel, .table-panel {
+      background: linear-gradient(145deg, rgba(255,255,255,0.94), rgba(239,248,255,0.78));
+      border: 1px solid rgba(37, 99, 235, 0.14);
+      border-radius: 34px 18px 34px 18px;
+      padding: 24px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .main-grid .panel:nth-child(2), .table-panel { border-radius: 18px 34px 18px 34px; }
+    .panel::before, .table-panel::before {
+      content: "";
+      position: absolute;
+      left: 22px;
+      top: 0;
+      width: 92px;
+      height: 5px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--blue), var(--cyan));
+    }
+
+    .panel { min-height: 300px; }
+    .table-panel { margin-bottom: 22px; }
+    .panel h2, .table-panel h2 { margin: 0 0 8px; font-size: 23px; color: #0f172a; }
+    .panel-sub { margin: 0 0 16px; color: #64748b; font-size: 14px; }
+    .chart { width: 100%; height: 330px; }
+
+    .slot-info {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      color: #1e3a8a;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+
+    .slot-info span {
+      background: rgba(239, 246, 255, 0.78);
+      border: 1px solid rgba(37,99,235,.12);
+      padding: 7px 10px;
+      border-radius: 999px;
+    }
+
+    .slot-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; }
+
+    .slot {
+      border: 1px solid rgba(37, 99, 235, 0.16);
+      border-radius: 18px 10px 18px 10px;
+      padding: 12px 8px;
+      text-align: center;
+      background: rgba(255,255,255,0.72);
+      min-height: 105px;
+      position: relative;
+      box-shadow: 0 8px 20px rgba(37,99,235,.08);
+    }
+
+    .slot.current {
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 3px rgba(245,158,11,.14), 0 14px 30px rgba(245,158,11,.18);
+      animation: pulse 1.2s infinite;
+    }
+
+    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.025); } 100% { transform: scale(1); } }
+    .slot-type { font-weight: 800; margin-bottom: 6px; color:#0f172a; }
+    .slot-duration { color: #64748b; font-size: 13px; margin-bottom: 6px; }
+    .slot-node { color: #1e3a8a; font-size: 13px; word-break: break-all; }
+    .slot-status { margin-top: 6px; font-size: 18px; }
+
+    .sensor-status { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+
+    .node-selector {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 4px 0 18px;
+      padding: 12px 14px;
+      border-radius: 999px;
+      background: rgba(239, 246, 255, 0.82);
+      border: 1px solid rgba(37, 99, 235, 0.16);
+      box-shadow: 0 8px 22px rgba(37, 99, 235, 0.08);
+      color: #1e293b;
+      flex-wrap: wrap;
+    }
+
+    .node-selector label {
+      font-size: 14px;
+      font-weight: 800;
+      color: #1e3a8a;
+    }
+
+    .node-selector select {
+      min-width: 220px;
+      padding: 9px 36px 9px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(37, 99, 235, 0.26);
+      background: #ffffff;
+      color: #0f172a;
+      font-weight: 800;
+      outline: none;
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.08);
+    }
+
+    .node-selector .selector-tip {
+      font-size: 13px;
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    .compact-selector {
+      margin-top: 2px;
+      margin-bottom: 14px;
+      padding: 10px 12px;
+      border-radius: 20px 12px 20px 12px;
+    }
+
+
+    .status-box {
+      padding: 14px;
+      border-radius: 20px 12px 20px 12px;
+      background: rgba(255,255,255,0.72);
+      border: 1px solid rgba(37, 99, 235, 0.14);
+      box-shadow: 0 8px 20px rgba(37,99,235,.07);
+    }
+
+    .status-label { color: #64748b; font-size: 14px; margin-bottom: 8px; }
+    .status-value { font-size: 22px; font-weight: 900; }
+    .normal { color: #16a34a; }
+    .warn { color: #f59e0b; }
+    .danger { color: #ef4444; }
+
+    .log-box, .topology-list {
+      background: rgba(248, 251, 255, 0.76);
+      border: 1px solid rgba(37, 99, 235, 0.14);
+      border-radius: 24px 14px 24px 14px;
+      padding: 14px;
+      overflow-y: auto;
+      color: #1e293b;
+    }
+
+    .topology-list { height: 320px; min-height: 320px; overflow: hidden; }
+    .log-box { height: 180px; min-height: 180px; max-height: 180px; font-family: Consolas, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+    .log-line { color: #1e3a8a; border-bottom: 1px solid rgba(37, 99, 235, 0.10); padding: 4px 0; word-break: break-all; }
+
+    .topology-node { margin: 10px 0; padding: 12px; border-radius: 16px; background: #ffffff; border: 1px solid rgba(37, 99, 235, 0.14); }
+    .children { margin-left: 28px; border-left: 2px dashed rgba(37,99,235,.22); padding-left: 16px; }
+
+    table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 18px; background: rgba(255,255,255,0.72); }
+    th, td { padding: 13px; border-bottom: 1px solid rgba(37, 99, 235, 0.10); text-align: left; font-size: 14px; }
+    th { color: #1e293b; background: rgba(219, 234, 254, 0.70); }
+    td { color: #1e3a8a; word-break: break-all; }
+
+    .alarm-bar {
+      background: linear-gradient(135deg, #fff7ed, #fee2e2);
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      border-radius: 22px 12px 22px 12px;
+      padding: 16px 18px;
+      margin-top: 22px;
+      font-weight: 800;
+      box-shadow: 0 10px 24px rgba(239,68,68,.10);
+    }
+
+    @media (max-width: 1150px) { .overview { grid-template-columns: repeat(2, 1fr); } .main-grid { grid-template-columns: 1fr; } .slot-grid { grid-template-columns: repeat(4, 1fr); } .metric-card { transform: none !important; } }
+    @media (max-width: 650px) { body { padding: 14px; } .overview { grid-template-columns: 1fr; } .slot-grid { grid-template-columns: repeat(2, 1fr); } .sensor-status { grid-template-columns: 1fr; } }
+
+
+    /* 字体可读性增强：浅色背景下统一提高文字对比度 */
+    .slot-info { color: #1e293b; }
+    .slot-info b { color: #1d4ed8; font-weight: 900; }
+    .slot-node { color: #1e40af; font-weight: 700; }
+    .log-line { color: #1e293b; }
+    td { color: #1e293b; }
+    .topology-list, .log-box { color: #1e293b; }
+    #statusOverview div { color: #1e293b; margin-bottom: 10px; }
+    #statusOverview b { color: #1d4ed8; font-weight: 900; }
+    .metric-title, .panel-sub, .status-label, .slot-duration { color: #334155; }
+    .metric-state { color: #15803d; font-weight: 700; }
+    .header::after { color: rgba(37, 99, 235, 0.36); }
+
+  </style>
+</head>
+
+<body>
+  <div class="page">
+    <div class="header">
+      <h1>🏠 ESP32-S3 TDMA 自组网监测平台</h1>
+      <p>已按新 main.c 适配：esp32/data、esp32/topology、esp32/tdma_status、esp32/status；status 的空 nodes 不刷新拓扑</p>
+      <div id="mqttStatus" class="mqtt-status">MQTT 状态：正在连接...</div>
+    </div>
+
+    <div class="overview">
+      <div class="metric-card">
+        <div class="metric-title">🌡️ 温度 temperature</div>
+        <div class="metric-value"><span id="temperatureValue">--</span><span class="metric-unit">℃</span></div>
+        <div id="temperatureState" class="metric-state">等待 esp32/data</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-title">💧 湿度 humidity</div>
+        <div class="metric-value"><span id="humidityValue">--</span><span class="metric-unit">%</span></div>
+        <div id="humidityState" class="metric-state">等待 esp32/data</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-title">🔋 电池 battery_mv</div>
+        <div class="metric-value"><span id="batteryValue">--</span><span class="metric-unit">V</span></div>
+        <div id="batteryState" class="metric-state">等待 esp32/data</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-title">📡 在线终端 terminal_count</div>
+        <div class="metric-value"><span id="terminalCount">--</span><span class="metric-unit">个</span></div>
+        <div id="terminalState" class="metric-state">等待 esp32/status</div>
+      </div>
+    </div>
+
+    <div class="main-grid">
+      <div class="panel">
+        <h2>⏱️ TDMA 超帧时隙分配</h2>
+        <p class="panel-sub">接收 main.c 发布到 esp32/tdma_status 的 tdma_scheduler_get_slot_string()</p>
+
+        <div class="slot-info">
+          <span>超帧：<b id="superframeMs">--</b> ms</span>
+          <span>网络时间/超帧：<b id="networkTimeUs">--</b> us</span>
+          <span>总时隙：<b id="slotCount">--</b></span>
+          <span>当前时隙：<b id="currentSlotText">--</b></span>
+          <span>占用：<b id="usedSlotText">--</b></span>
+        </div>
+
+        <div id="slotGrid" class="slot-grid"></div>
+      </div>
+
+      <div class="panel">
+        <h2>📊 终端传感器数据</h2>
+        <p class="panel-sub">接收 main.c 解密后通过 sensor_data_to_json() 发送到 esp32/data 的数据</p>
+
+        <div class="node-selector">
+          <label for="nodeSelect">当前查看节点：</label>
+          <select id="nodeSelect">
+            <option value="all">全部节点</option>
+          </select>
+          <span class="selector-tip">多组数据会按 node_id / MAC 自动分组</span>
+        </div>
+
+        <div class="sensor-status">
+          <div class="status-box">
+            <div class="status-label">人体红外 motion / pir</div>
+            <div id="pirStatus" class="status-value normal">--</div>
+            <div id="pirTime" class="status-label">最后更新：--</div>
+          </div>
+
+          <div class="status-box">
+            <div class="status-label">唤醒原因 wake_reason</div>
+            <div id="wakeReasonStatus" class="status-value normal">--</div>
+            <div id="wakeReasonText" class="status-label">说明：--</div>
+          </div>
+
+          <div class="status-box">
+            <div class="status-label">节点 node_id / slot</div>
+            <div id="nodeIdStatus" class="status-value normal">--</div>
+            <div id="nodeExtraText" class="status-label">slot：-- | seq：--</div>
+          </div>
+        </div>
+
+        <div id="sensorChart" class="chart"></div>
+      </div>
+    </div>
+
+    <div class="main-grid">
+      <div class="panel">
+        <h2>📡 实时网络拓扑图</h2>
+        <p class="panel-sub">接收 esp32/topology，将 self_mac 与 neighbors 显示为圆圈连接图；连线长度由 RSSI 决定</p>
+        <div id="topologyList" class="topology-list">等待网络拓扑数据...</div>
+      </div>
+
+      <div class="panel">
+        <h2>📶 网络状态总览</h2>
+        <p class="panel-sub">接收 esp32/status 中的 terminal_count、tdma_total_slots、tdma_used_slots、sync_accuracy_ms、nodes</p>
+        <div id="statusOverview" class="topology-list">
+          <div>网关 ID：<b id="gatewayIdVal">--</b></div>
+          <div>同步精度 sync_accuracy_ms：<b id="syncAccVal">--</b></div>
+          <div>TDMA 占用：<b id="tdmaUsedVal">--</b></div>
+          <div>连接终端 terminal_count：<b id="terminalCountVal">--</b></div>
+          <div>最新 RSSI：<b id="rssiVal">--</b></div>
+          <div>最新 offset_us：<b id="offsetVal">--</b></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main-grid">
+      <div class="panel">
+        <h2>🔋 电池电压 / RSSI 趋势</h2>
+        <p class="panel-sub">支持按终端节点筛选查看电池电压与 RSSI 曲线</p>
+
+        <div class="node-selector compact-selector">
+          <label for="powerNodeSelect">趋势查看节点：</label>
+          <select id="powerNodeSelect">
+            <option value="all">全部节点</option>
+          </select>
+          <span class="selector-tip">与上方节点选择联动</span>
+        </div>
+
+        <div id="powerChart" class="chart"></div>
+      </div>
+
+      <div class="panel">
+        <h2>🧾 MQTT 接收日志</h2>
+        <p class="panel-sub">用于确认网页是否真正收到了 main.c 发布的各个 topic</p>
+        <div id="securityLog" class="log-box">等待 MQTT 数据...</div>
+      </div>
+    </div>
+
+    <div class="table-panel">
+      <h2>📋 节点状态总览</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>角色</th>
+            <th>节点 ID</th>
+            <th>MAC</th>
+            <th>RSSI</th>
+            <th>跳数</th>
+            <th>时隙</th>
+            <th>电池</th>
+            <th>状态</th>
+          </tr>
+        </thead>
+        <tbody id="nodeTableBody">
+          <tr><td colspan="8">等待 esp32/status 或 esp32/data 数据...</td></tr>
+        </tbody>
+      </table>
+
+      <div id="alarmBar" class="alarm-bar">⚠️ 告警栏：暂无 PIR 紧急触发</div>
+    </div>
+  </div>
+
+  <script>
+    /*
+     * main.c 里的 ESP32 使用 mqtts://xxx:8883。
+     * 浏览器网页不能直接用 8883 MQTT TLS，要用 WebSocket TLS：wss://xxx:8084/mqtt。
+     */
+    const brokerUrl = "wss://d4c11111.ala.cn-hangzhou.emqxsl.cn:8084/mqtt";
+
+    const options = {
+      clientId: "web_client_" + Math.random().toString(16).substring(2, 8),
+      clean: true,
+      connectTimeout: 8000,
+      username: "admin",
+      password: "abc123456789",
+      reconnectPeriod: 3000
+    };
+
+    /*
+     * 与 main.c 对应：
+     * 1. mqtt_test_send_json(json_buf)           -> esp32/data
+     * 2. mqtt_test_publish_to_topic("esp32/topology", topo)
+     * 3. mqtt_test_publish_to_topic("esp32/tdma_status", slots)
+     * 4. mqtt_test_publish_to_topic("esp32/status", status_str)
+     */
+    const topics = {
+      "esp32/data": { qos: 0 },
+      "esp32/topology": { qos: 0 },
+      "esp32/tdma_status": { qos: 0 },
+      "esp32/status": { qos: 0 }
+    };
+
+    const latestNodes = new Map();
+    const nodeDataStore = new Map();
+    const sensorHistoryByNode = {};
+    const powerHistoryByNode = {};
+    let currentSelectedNode = "all";
+
+    const mqttStatus = document.getElementById("mqttStatus");
+    const sensorChart = echarts.init(document.getElementById("sensorChart"));
+    const powerChart = echarts.init(document.getElementById("powerChart"));
+    const topologyChart = echarts.init(document.getElementById("topologyList"));
+    const nodeSelect = document.getElementById("nodeSelect");
+    const powerNodeSelect = document.getElementById("powerNodeSelect");
+
+    function changeSelectedNode(value) {
+      currentSelectedNode = value || "all";
+      if (nodeSelect) nodeSelect.value = currentSelectedNode;
+      if (powerNodeSelect) powerNodeSelect.value = currentSelectedNode;
+      renderSelectedNodePanel();
+      renderSensorChartBySelection();
+      renderPowerChartBySelection();
+    }
+
+    nodeSelect.addEventListener("change", function () {
+      changeSelectedNode(this.value);
+    });
+
+    powerNodeSelect.addEventListener("change", function () {
+      changeSelectedNode(this.value);
+    });
+
+    const sensorTimes = [];
+    const temperatureSeries = [];
+    const humiditySeries = [];
+    const trendTimes = [];
+    const batterySeriesByNode = {};  // { "node_8C": [3.78, 3.77, ...] }
+    const rssiSeriesByNode = {};
+
+    function getReceiveTime() {
+      return new Date().toLocaleTimeString("zh-CN", {
+        hour12: false,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    }
+
+    function valueOf(obj, keys, defaultValue = undefined) {
+      for (const k of keys) {
+        if (obj && obj[k] !== undefined && obj[k] !== null) return obj[k];
+      }
+      return defaultValue;
+    }
+
+    function numOrNull(v) {
+      if (v === undefined || v === null || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "--")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function addLimited(arr, value, maxLen) {
+      arr.push(value);
+      while (arr.length > maxLen) arr.shift();
+    }
+
+    sensorChart.setOption({
+      backgroundColor: "transparent",
+      tooltip: { trigger: "axis" },
+      legend: {
+        type: "scroll",
+        data: ["温度 ℃", "湿度 %"],
+        textStyle: { color: "rgba(37, 99, 235, 0.18)" }
+      },
+      grid: { left: 45, right: 45, top: 45, bottom: 35 },
+      xAxis: {
+        type: "category",
+        data: sensorTimes,
+        axisLabel: { color: "#64748b" },
+        axisLine: { lineStyle: { color: "rgba(37, 99, 235, 0.18)" } }
+      },
+      yAxis: [
+        {
+          type: "value",
+          name: "温度 ℃",
+          axisLabel: { color: "#64748b" },
+          splitLine: { lineStyle: { color: "rgba(37, 99, 235, 0.10)" } }
+        },
+        {
+          type: "value",
+          name: "湿度 %",
+          axisLabel: { color: "#64748b" },
+          splitLine: { show: false }
+        }
+      ],
+      series: [
+        { name: "温度 ℃", type: "line", smooth: true, data: temperatureSeries, yAxisIndex: 0, lineStyle: { width: 3, color: "#facc15" }, itemStyle: { color: "#facc15" } },
+        { name: "湿度 %", type: "line", smooth: true, data: humiditySeries, yAxisIndex: 1, lineStyle: { width: 3, color: "#60a5fa" }, itemStyle: { color: "#60a5fa" } }
+      ]
+    });
+
+    powerChart.setOption({
+      backgroundColor: "transparent",
+      tooltip: { trigger: "axis" },
+      legend: {
+        type: "scroll",
+        data: [],
+        textStyle: { color: "rgba(37, 99, 235, 0.18)" }
+      },
+      grid: { left: 50, right: 50, top: 45, bottom: 35 },
+      xAxis: {
+        type: "category",
+        data: trendTimes,
+        axisLabel: { color: "#64748b" },
+        axisLine: { lineStyle: { color: "rgba(37, 99, 235, 0.18)" } }
+      },
+      yAxis: [
+        {
+          type: "value",
+          name: "电池 V",
+          axisLabel: { color: "#64748b" },
+          splitLine: { lineStyle: { color: "rgba(37, 99, 235, 0.10)" } }
+        },
+        {
+          type: "value",
+          name: "RSSI dBm",
+          axisLabel: { color: "#64748b" },
+          splitLine: { show: false }
+        }
+      ],
+      series: []  // 按节点动态构建，每个节点一条电池线 + 一条 RSSI 线
+    });
+
+    showTopologyMessage("等待网络拓扑数据...", "收到 esp32/topology 后会显示圆圈连接图，连线长度由 RSSI 决定");
+
+    const client = mqtt.connect(brokerUrl, options);
+
+    client.on("connect", function () {
+      mqttStatus.innerText = "MQTT 状态：已连接，正在订阅 esp32/data、esp32/topology、esp32/tdma_status、esp32/status...";
+      mqttStatus.className = "mqtt-status connected";
+
+      client.subscribe(topics, function (err, granted) {
+        if (!err) {
+          mqttStatus.innerText = "MQTT 状态：已连接，已订阅 main.c 对应的 4 个 Topic，等待数据...";
+          mqttStatus.className = "mqtt-status connected";
+          appendLog("web", "订阅成功", JSON.stringify(granted), getReceiveTime());
+        } else {
+          mqttStatus.innerText = "MQTT 状态：订阅失败，请检查 EMQX ACL / 用户名 / 密码 / Topic 权限";
+          mqttStatus.className = "mqtt-status error";
+          appendLog("web", "订阅失败", err.message || String(err), getReceiveTime());
+        }
+      });
+    });
+
+    client.on("message", function (topic, message) {
+      const recvTime = getReceiveTime();
+      const raw = message.toString();
+
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch (err) {
+        appendLog(topic, "JSON 解析失败", raw, recvTime);
+        return;
+      }
+
+      appendLog(topic, "收到数据", raw, recvTime);
+      handleMqttData(topic, data, recvTime);
+    });
+
+    client.on("error", function (err) {
+      mqttStatus.innerText = "MQTT 状态：连接错误，请检查 WebSocket 地址、用户名、密码、端口 8084";
+      mqttStatus.className = "mqtt-status error";
+      appendLog("web", "连接错误", err.message || String(err), getReceiveTime());
+    });
+
+    client.on("close", function () {
+      mqttStatus.innerText = "MQTT 状态：连接断开，正在尝试重连...";
+      mqttStatus.className = "mqtt-status";
+    });
+
+    client.on("reconnect", function () {
+      mqttStatus.innerText = "MQTT 状态：正在重连...";
+      mqttStatus.className = "mqtt-status";
+    });
+
+    function handleMqttData(topic, data, recvTime) {
+      const cleanTopic = String(topic || "").trim();
+
+      try {
+        if (cleanTopic === "esp32/data") {
+          updateSensorData(data, recvTime);
+          return;
+        }
+
+        if (cleanTopic === "esp32/topology") {
+          updateTopology(data);
+          return;
+        }
+
+        if (cleanTopic === "esp32/tdma_status") {
+          updateTdmaSlots(data);
+          return;
+        }
+
+        if (cleanTopic === "esp32/status") {
+          updateGatewayStatus(data);
+          return;
+        }
+
+        appendLog(cleanTopic, "未处理 topic", JSON.stringify(data), recvTime);
+      } catch (err) {
+        appendLog(cleanTopic, "页面更新失败", err.message || String(err), recvTime);
+      }
+    }
+
+    /*
+     * main.c 解密后构造 sensor_data_t：
+     * node_id, temperature, humidity, wake_reason, motion, battery_mv,
+     * seq, hop, slot, offset_us, rssi, timestamp
+     */
+    function updateSensorData(data, recvTime) {
+      const nodeList = extractSensorNodeList(data);
+      if (!nodeList.length) {
+        appendLog("esp32/data", "未找到节点数据", JSON.stringify(data), recvTime);
+        return;
+      }
+
+      nodeList.forEach(function (node) {
+        storeSensorNodeData(node, recvTime);
+      });
+
+      refreshNodeSelector();
+      renderSelectedNodePanel();
+      renderSensorChartBySelection();
+      renderPowerChartBySelection();
+      renderNodeTableFromMap();
+    }
+
+    function extractSensorNodeList(data) {
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.nodes)) return data.nodes;
+      if (data && Array.isArray(data.terminals)) return data.terminals;
+      if (data && Array.isArray(data.devices)) return data.devices;
+      if (data && Array.isArray(data.data)) return data.data;
+      if (data && data.payload && Array.isArray(data.payload.nodes)) return data.payload.nodes;
+      if (data && data.payload && Array.isArray(data.payload)) return data.payload;
+      return data ? [data] : [];
+    }
+
+    function getStableNodeId(data) {
+      const rawId = valueOf(data, ["node_id", "device_id", "id"], null);
+      if (rawId !== null && rawId !== undefined && String(rawId).trim() !== "") return String(rawId);
+
+      const mac = valueOf(data, ["mac", "self_mac", "node_mac"], null);
+      if (mac !== null && mac !== undefined && String(mac).trim() !== "") return "node_" + shortMac(mac);
+
+      return "unknown_node";
+    }
+
+    function normalizeSensorData(data, recvTime) {
+      const nodeId = getStableNodeId(data);
+      const temperature = numOrNull(valueOf(data, ["temperature", "temp"]));
+      const humidity = numOrNull(valueOf(data, ["humidity", "humid"]));
+      const batteryMv = numOrNull(valueOf(data, ["battery_mv", "batt", "batt_mv"]));
+      const motionRaw = valueOf(data, ["motion", "pir", "pir_triggered"], false);
+      const motion = motionRaw === true || motionRaw === 1 || motionRaw === "1" || motionRaw === "true";
+      const wakeReason = valueOf(data, ["wake_reason", "wake"], "--");
+      const seq = valueOf(data, ["seq"], "--");
+      const hop = valueOf(data, ["hop", "hop_count"], "--");
+      const slot = valueOf(data, ["slot", "slot_id"], "--");
+      const offsetUs = valueOf(data, ["offset_us", "offset"], "--");
+      const rssi = valueOf(data, ["rssi"], "--");
+      const mac = valueOf(data, ["mac", "self_mac", "node_mac"], "--");
+
+      return {
+        raw: data,
+        node_id: nodeId,
+        mac,
+        temperature,
+        humidity,
+        battery_mv: batteryMv,
+        motion,
+        wake_reason: wakeReason,
+        seq,
+        hop,
+        slot,
+        offset_us: offsetUs,
+        rssi,
+        recv_time: recvTime,
+        ts: Date.now()
+      };
+    }
+
+    function storeSensorNodeData(data, recvTime) {
+      const node = normalizeSensorData(data, recvTime);
+      const nodeId = node.node_id;
+      nodeDataStore.set(nodeId, node);
+
+      if (!sensorHistoryByNode[nodeId]) {
+        sensorHistoryByNode[nodeId] = { temperature: [], humidity: [] };
+      }
+      if (node.temperature !== null) {
+        addLimited(sensorHistoryByNode[nodeId].temperature, [node.ts, node.temperature], 40);
+      }
+      if (node.humidity !== null) {
+        addLimited(sensorHistoryByNode[nodeId].humidity, [node.ts, node.humidity], 40);
+      }
+
+      if ((node.battery_mv !== null && node.battery_mv > 0) || node.rssi !== "--") {
+        if (!powerHistoryByNode[nodeId]) {
+          powerHistoryByNode[nodeId] = { battery: [], rssi: [] };
+        }
+
+        const battV = node.battery_mv !== null && node.battery_mv > 0
+          ? Number((node.battery_mv / 1000).toFixed(2))
+          : null;
+        const rssiV = node.rssi === "--" ? null : Number(node.rssi);
+
+        // 用时间戳和值组成 [time, value]，避免多节点共用一个 xAxis 类目时长度对不齐。
+        if (battV !== null) addLimited(powerHistoryByNode[nodeId].battery, [node.ts, battV], 40);
+        if (Number.isFinite(rssiV)) addLimited(powerHistoryByNode[nodeId].rssi, [node.ts, rssiV], 40);
+
+        // 兼容旧变量，避免其他旧逻辑引用时报错。
+        if (!batterySeriesByNode[nodeId]) batterySeriesByNode[nodeId] = [];
+        if (!rssiSeriesByNode[nodeId]) rssiSeriesByNode[nodeId] = [];
+        addLimited(batterySeriesByNode[nodeId], battV, 40);
+        addLimited(rssiSeriesByNode[nodeId], Number.isFinite(rssiV) ? rssiV : null, 40);
+
+        renderPowerChartBySelection();
+      }
+
+      latestNodes.set(nodeId, {
+        role: node.hop === 0 || node.hop === "0" ? "网关" : "终端",
+        node_id: nodeId,
+        mac: node.mac,
+        rssi: node.rssi,
+        hop: node.hop,
+        slot: node.slot,
+        battery_mv: node.battery_mv,
+        status: node.motion ? "PIR触发" : "正常"
+      });
+
+      if (node.motion) {
+        document.getElementById("alarmBar").innerText =
+          `⚠️ 告警栏：${node.recv_time} | ${nodeId} | PIR 触发 | 终端检测到有人活动`;
+      }
+
+      document.getElementById("rssiVal").innerText = node.rssi === "--" ? "--" : node.rssi + " dBm";
+      document.getElementById("offsetVal").innerText = node.offset_us === "--" ? "--" : node.offset_us + " us";
+      document.getElementById("terminalCount").innerText = nodeDataStore.size;
+      document.getElementById("terminalCountVal").innerText = nodeDataStore.size;
+      document.getElementById("terminalState").innerText = "🟢 已缓存 " + nodeDataStore.size + " 个节点";
+    }
+
+    function refreshNodeSelector() {
+      const existing = currentSelectedNode;
+      const ids = Array.from(nodeDataStore.keys()).sort();
+
+      function fillSelect(selectEl) {
+        if (!selectEl) return;
+        selectEl.innerHTML = `<option value="all">全部节点（${ids.length}组）</option>`;
+        ids.forEach(function (id) {
+          const node = nodeDataStore.get(id);
+          const option = document.createElement("option");
+          option.value = id;
+          option.textContent = id + (node && node.mac && node.mac !== "--" ? " | " + shortMac(node.mac) : "");
+          selectEl.appendChild(option);
+        });
+      }
+
+      fillSelect(nodeSelect);
+      fillSelect(powerNodeSelect);
+
+      currentSelectedNode = existing === "all" || nodeDataStore.has(existing) ? existing : "all";
+      if (nodeSelect) nodeSelect.value = currentSelectedNode;
+      if (powerNodeSelect) powerNodeSelect.value = currentSelectedNode;
+    }
+
+    function setTopMetricSource(sourceText) {
+      // 顶部四个卡片下方统一标明数据来源，避免用户不知道当前显示的是哪一个终端的数据。
+      return sourceText || "数据来源：--";
+    }
+
+    function renderSelectedNodePanel() {
+      if (!nodeDataStore.size) return;
+
+      if (currentSelectedNode === "all") {
+        const nodes = Array.from(nodeDataStore.values());
+        const temps = nodes.map(n => n.temperature).filter(v => v !== null);
+        const hums = nodes.map(n => n.humidity).filter(v => v !== null);
+        const batteries = nodes.map(n => n.battery_mv).filter(v => v !== null && v > 0);
+        const alarmNodes = nodes.filter(n => n.motion).map(n => n.node_id);
+        const rssiNodes = nodes.map(n => Number(n.rssi)).filter(v => Number.isFinite(v));
+        const latestNode = nodes.reduce((a, b) => !a || b.ts > a.ts ? b : a, null);
+        const sourceText = `数据来源：全部节点（${nodes.length}组）`;
+
+        document.getElementById("temperatureValue").innerText = temps.length
+          ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1)
+          : "--";
+        document.getElementById("temperatureState").innerText = temps.length
+          ? setTopMetricSource(sourceText + " | 平均温度")
+          : "等待 esp32/data";
+
+        document.getElementById("humidityValue").innerText = hums.length
+          ? (hums.reduce((a, b) => a + b, 0) / hums.length).toFixed(1)
+          : "--";
+        document.getElementById("humidityState").innerText = hums.length
+          ? setTopMetricSource(sourceText + " | 平均湿度")
+          : "等待 esp32/data";
+
+        document.getElementById("batteryValue").innerText = batteries.length
+          ? (Math.min(...batteries) / 1000).toFixed(2)
+          : "--";
+        document.getElementById("batteryState").innerText = batteries.length
+          ? setTopMetricSource(sourceText + " | 全网最低电池")
+          : "等待 esp32/data";
+
+        document.getElementById("terminalCount").innerText = nodes.length;
+        document.getElementById("terminalState").innerText = setTopMetricSource("数据来源：节点缓存 / 网关状态");
+
+        document.getElementById("pirStatus").innerText = alarmNodes.length ? alarmNodes.length + " 个节点触发" : "全部正常";
+        document.getElementById("pirStatus").className = alarmNodes.length ? "status-value danger" : "status-value normal";
+        document.getElementById("pirTime").innerText = "最新更新：" + (latestNode ? latestNode.recv_time : "--");
+
+        document.getElementById("wakeReasonStatus").innerText = "全部节点";
+        document.getElementById("wakeReasonText").innerText = "当前缓存：" + nodes.length + " 组数据";
+
+        document.getElementById("nodeIdStatus").innerText = "ALL";
+        document.getElementById("nodeExtraText").innerText = latestNode
+          ? `最新节点：${latestNode.node_id} | slot：${latestNode.slot} | hop：${latestNode.hop}`
+          : "slot：-- | seq：--";
+
+        const avgRssi = rssiNodes.length ? (rssiNodes.reduce((a, b) => a + b, 0) / rssiNodes.length).toFixed(0) : "--";
+        document.getElementById("rssiVal").innerText = avgRssi === "--" ? "--" : avgRssi + " dBm（平均）";
+        document.getElementById("offsetVal").innerText = latestNode && latestNode.offset_us !== "--" ? latestNode.offset_us + " us" : "--";
+        return;
+      }
+
+      const node = nodeDataStore.get(currentSelectedNode);
+      if (!node) return;
+      const sourceText = `数据来源：${node.node_id}${node.mac && node.mac !== "--" ? " / " + shortMac(node.mac) : ""}`;
+
+      if (node.temperature !== null) {
+        document.getElementById("temperatureValue").innerText = node.temperature.toFixed(1);
+        document.getElementById("temperatureState").innerText =
+          sourceText + " | " + (node.temperature >= 10 && node.temperature <= 35 ? "🟢 正常" : "🟡 注意");
+      } else {
+        document.getElementById("temperatureValue").innerText = "--";
+        document.getElementById("temperatureState").innerText = sourceText + " | 暂无温度";
+      }
+
+      if (node.humidity !== null) {
+        document.getElementById("humidityValue").innerText = node.humidity.toFixed(1);
+        document.getElementById("humidityState").innerText =
+          sourceText + " | " + (node.humidity >= 20 && node.humidity <= 80 ? "🟢 正常" : "🟡 注意");
+      } else {
+        document.getElementById("humidityValue").innerText = "--";
+        document.getElementById("humidityState").innerText = sourceText + " | 暂无湿度";
+      }
+
+      if (node.battery_mv !== null && node.battery_mv > 0) {
+        const battV = node.battery_mv / 1000;
+        document.getElementById("batteryValue").innerText = battV.toFixed(2);
+        document.getElementById("batteryState").innerText = sourceText + " | " + (
+          node.battery_mv > 3300 ? "🟢 电量正常" :
+          node.battery_mv > 3000 ? "🟡 电量偏低" : "🟢 低压");
+      } else {
+        document.getElementById("batteryValue").innerText = "--";
+        document.getElementById("batteryState").innerText = sourceText + " | 暂无电池数据";
+      }
+
+      document.getElementById("terminalCount").innerText = nodeDataStore.size;
+      document.getElementById("terminalState").innerText = sourceText + " | 当前查看终端";
+
+      document.getElementById("pirStatus").innerText = node.motion ? "有人活动" : "未触发";
+      document.getElementById("pirStatus").className = node.motion ? "status-value danger" : "status-value normal";
+      document.getElementById("pirTime").innerText = "最后更新：" + node.recv_time;
+
+      document.getElementById("wakeReasonStatus").innerText = node.wake_reason;
+      document.getElementById("wakeReasonText").innerText = "0x01/1=定时发送，0x02/2=PIR唤醒";
+
+      document.getElementById("nodeIdStatus").innerText = node.node_id;
+      document.getElementById("nodeExtraText").innerText =
+        `slot：${node.slot} | seq：${node.seq} | hop：${node.hop}`;
+
+      document.getElementById("rssiVal").innerText = node.rssi === "--" ? "--" : node.rssi + " dBm";
+      document.getElementById("offsetVal").innerText = node.offset_us === "--" ? "--" : node.offset_us + " us";
+    }
+
+    function renderSensorChartBySelection() {
+      const colors = ["#2563eb", "#06b6d4", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6"];
+      const series = [];
+      const legend = [];
+
+      function addNodeSeries(nodeId, colorIndex) {
+        const history = sensorHistoryByNode[nodeId];
+        if (!history) return;
+        const c = colors[colorIndex % colors.length];
+
+        if (history.temperature.length) {
+          legend.push(nodeId + " 温度");
+          series.push({
+            name: nodeId + " 温度",
+            type: "line",
+            smooth: true,
+            data: history.temperature,
+            yAxisIndex: 0,
+            lineStyle: { width: 3, color: c },
+            itemStyle: { color: c }
+          });
+        }
+
+        if (history.humidity.length) {
+          legend.push(nodeId + " 湿度");
+          series.push({
+            name: nodeId + " 湿度",
+            type: "line",
+            smooth: true,
+            data: history.humidity,
+            yAxisIndex: 1,
+            lineStyle: { width: 2, type: "dashed", color: c },
+            itemStyle: { color: c }
+          });
+        }
+      }
+
+      if (currentSelectedNode === "all") {
+        Array.from(nodeDataStore.keys()).sort().forEach(addNodeSeries);
+      } else {
+        addNodeSeries(currentSelectedNode, 0);
+      }
+
+      sensorChart.setOption({
+        legend: { data: legend, textStyle: { color: "#1e293b" } },
+        xAxis: {
+          type: "time",
+          axisLabel: {
+            color: "#334155",
+            formatter: function (value) {
+              const d = new Date(value);
+              return d.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+            }
+          },
+          axisLine: { lineStyle: { color: "rgba(37, 99, 235, 0.22)" } }
+        },
+        yAxis: [
+          { type: "value", name: "温度 ℃", axisLabel: { color: "#334155" }, splitLine: { lineStyle: { color: "rgba(37, 99, 235, 0.10)" } } },
+          { type: "value", name: "湿度 %", axisLabel: { color: "#334155" }, splitLine: { show: false } }
+        ],
+        series: series
+      }, true);
+    }
+
+    function renderPowerChartBySelection() {
+      const colors = ["#22c55e", "#3b82f6", "#facc15", "#f87171", "#a855f7", "#fb923c", "#06b6d4", "#8b5cf6"];
+      let ci = 0;
+      const dynSeries = [];
+      const dynLegend = [];
+
+      function addNodePowerSeries(nid) {
+        const history = powerHistoryByNode[nid];
+        if (!history) return;
+        const hasBattery = Array.isArray(history.battery) && history.battery.length;
+        const hasRssi = Array.isArray(history.rssi) && history.rssi.length;
+        if (!hasBattery && !hasRssi) return;
+
+        const c = colors[ci % colors.length];
+        if (hasBattery) {
+          dynLegend.push(nid + " 电池");
+          dynSeries.push({
+            name: nid + " 电池",
+            type: "line",
+            smooth: true,
+            showSymbol: true,
+            symbolSize: 7,
+            data: history.battery,
+            yAxisIndex: 0,
+            lineStyle: { width: 3, color: c },
+            itemStyle: { color: c }
+          });
+        }
+        if (hasRssi) {
+          dynLegend.push(nid + " RSSI");
+          dynSeries.push({
+            name: nid + " RSSI",
+            type: "line",
+            smooth: true,
+            showSymbol: true,
+            symbolSize: 7,
+            data: history.rssi,
+            yAxisIndex: 1,
+            lineStyle: { width: 2, type: "dashed", color: c },
+            itemStyle: { color: c }
+          });
+        }
+        ci++;
+      }
+
+      if (currentSelectedNode === "all") {
+        Array.from(nodeDataStore.keys()).sort().forEach(addNodePowerSeries);
+      } else {
+        addNodePowerSeries(currentSelectedNode);
+      }
+
+      powerChart.setOption({
+        backgroundColor: "transparent",
+        tooltip: {
+          trigger: "axis",
+          backgroundColor: "#ffffff",
+          borderColor: "rgba(37, 99, 235, 0.18)",
+          textStyle: { color: "#0f172a" },
+          axisPointer: { type: "line" }
+        },
+        legend: {
+          type: "scroll",
+          data: dynLegend,
+          textStyle: { color: "#1e293b", fontWeight: 700 }
+        },
+        grid: { left: 55, right: 58, top: 48, bottom: 42 },
+        xAxis: {
+          type: "time",
+          axisLabel: {
+            color: "#334155",
+            formatter: function (value) {
+              const d = new Date(value);
+              return d.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+            }
+          },
+          axisLine: { lineStyle: { color: "rgba(37, 99, 235, 0.22)" } }
+        },
+        yAxis: [
+          {
+            type: "value",
+            name: "电池 V",
+            min: function (value) {
+              return value.min > 0 ? Math.max(0, Math.floor((value.min - 0.1) * 10) / 10) : 0;
+            },
+            axisLabel: { color: "#334155" },
+            splitLine: { lineStyle: { color: "rgba(37, 99, 235, 0.10)" } }
+          },
+          {
+            type: "value",
+            name: "RSSI dBm",
+            min: -100,
+            max: -20,
+            axisLabel: { color: "#334155" },
+            splitLine: { show: false }
+          }
+        ],
+        series: dynSeries,
+        graphic: dynSeries.length ? [] : [
+          {
+            type: "text",
+            left: "center",
+            top: "middle",
+            style: {
+              text: "暂无电池/RSSI趋势数据\n请向 esp32/data 发送 battery_mv 和 rssi 字段",
+              fill: "#64748b",
+              font: "14px Microsoft YaHei",
+              textAlign: "center"
+            }
+          }
+        ]
+      }, true);
+    }
+
+    // 兼容旧调用名：统一走当前节点筛选逻辑。
+    function renderPowerChartAllNodes() {
+      renderPowerChartBySelection();
+    }
+
+
+    /*
+     * main.c 每 5 秒发布 esp32/status：
+     * gateway_id, terminal_count, tdma_total_slots, tdma_used_slots,
+     * sync_accuracy_ms, nodes[]
+     */
+    function updateGatewayStatus(data) {
+      const gatewayId = valueOf(data, ["gateway_id", "device_id", "node_id"], "gw_001");
+      const terminalCount = valueOf(data, ["terminal_count"], "--");
+      const totalSlots = valueOf(data, ["tdma_total_slots", "total_slots"], "--");
+      const usedSlots = valueOf(data, ["tdma_used_slots", "used_slots"], "--");
+      const syncAcc = valueOf(data, ["sync_accuracy_ms"], "--");
+
+      document.getElementById("gatewayIdVal").innerText = gatewayId;
+      document.getElementById("terminalCount").innerText = terminalCount;
+      document.getElementById("terminalState").innerText = terminalCount === "--" ? "等待 esp32/status" : "🟢 在线";
+      document.getElementById("terminalCountVal").innerText = terminalCount;
+      document.getElementById("tdmaUsedVal").innerText =
+        usedSlots === "--" && totalSlots === "--" ? "--" : `${usedSlots}/${totalSlots}`;
+      document.getElementById("syncAccVal").innerText =
+        syncAcc === "--" ? "--" : `${syncAcc} ms`;
+      document.getElementById("usedSlotText").innerText =
+        usedSlots === "--" && totalSlots === "--" ? "--" : `${usedSlots}/${totalSlots}`;
+
+      /*
+       * 重要修改：esp32/status 里经常会带 nodes: []。
+       * 空数组只表示“当前 status 没有节点表数据”，不能拿它去刷新拓扑。
+       * 否则会把 esp32/topology 已经显示出来的有效圆圈拓扑覆盖掉。
+       *
+       * 按你的要求，明确加入下面这一句：
+       * if (!gwJson.nodes || gwJson.nodes.length === 0) return;
+       */
+      const gwJson = data;
+      if (!gwJson.nodes || gwJson.nodes.length === 0) return;
+
+      updateNodeTable(gwJson.nodes);
+      // 拓扑图只由 esp32/topology 更新，避免 status 的稀疏数据覆盖全量拓扑
+    }
+
+    /*
+     * 兼容 tdma_scheduler_get_slot_string() 常见输出：
+     * 1. superframe_us / total_slots / used_slots / slots[]
+     * 2. superframe_ms / slot_count / current_slot / slots[]
+     * 3. slots 中可能是 slot_id, slot_start_us, slot_duration_us, node_mac, status
+     */
+    function updateTdmaSlots(data) {
+      const superframeUs = numOrNull(valueOf(data, ["superframe_us"]));
+      const superframeMs = numOrNull(valueOf(data, ["superframe_ms"]));
+      const totalSlots = valueOf(data, ["total_slots", "slot_count"], Array.isArray(data.slots) ? data.slots.length : "--");
+      const usedSlots = valueOf(data, ["used_slots", "tdma_used_slots"], "--");
+
+      const finalSuperframeMs = superframeMs !== null
+        ? superframeMs
+        : (superframeUs !== null ? superframeUs / 1000 : null);
+
+      document.getElementById("superframeMs").innerText =
+        finalSuperframeMs !== null ? finalSuperframeMs.toFixed(0) : "--";
+      document.getElementById("networkTimeUs").innerText =
+        superframeUs !== null ? superframeUs : valueOf(data, ["network_time_us"], "--");
+      document.getElementById("slotCount").innerText = totalSlots;
+      document.getElementById("usedSlotText").innerText =
+        usedSlots === "--" ? "--" : `${usedSlots}/${totalSlots}`;
+
+      const slots = Array.isArray(data.slots) ? data.slots : [];
+      let currentSlotId = valueOf(data, ["current_slot"], null);
+
+      if (currentSlotId === null && superframeUs !== null && slots.length) {
+        const nowInFrame = (Date.now() * 1000) % superframeUs;
+        for (const s of slots) {
+          const start = numOrNull(valueOf(s, ["slot_start_us", "start_us"]));
+          const dur = numOrNull(valueOf(s, ["slot_duration_us", "duration_us"]));
+          if (start !== null && dur !== null && nowInFrame >= start && nowInFrame < start + dur) {
+            currentSlotId = valueOf(s, ["slot_id", "id", "name"], "--");
+            break;
+          }
+        }
+      }
+
+      document.getElementById("currentSlotText").innerText =
+        currentSlotId !== null ? String(currentSlotId) : "--";
+
+      const slotGrid = document.getElementById("slotGrid");
+      slotGrid.innerHTML = "";
+
+      if (!slots.length) {
+        slotGrid.innerHTML = `<div class="slot"><div class="slot-type">等待 TDMA 数据</div><div class="slot-duration">--</div><div class="slot-node">esp32/tdma_status</div><div class="slot-status">⚪</div></div>`;
+        return;
+      }
+
+      slots.forEach(function (slot) {
+        const slotId = valueOf(slot, ["slot_id", "id", "name"], "--");
+        const durationUs = numOrNull(valueOf(slot, ["slot_duration_us", "duration_us"]));
+        const durationMs = numOrNull(valueOf(slot, ["duration_ms"]));
+        const finalDurationMs = durationMs !== null ? durationMs : (durationUs !== null ? durationUs / 1000 : null);
+        const status = valueOf(slot, ["status", "type"], "used");
+        const nodeMac = valueOf(slot, ["node_mac", "owner", "mac"], "--");
+
+        const isCurrent =
+          String(slotId) === String(currentSlotId) ||
+          String(valueOf(slot, ["name"], "")) === String(currentSlotId);
+
+        const icon =
+          status === "free" ? "⚪" :
+          status === "emergency" ? "🔴" :
+          status === "beacon" ? "🟡" :
+          status === "contention" ? "🟢" : "🔵";
+
+        const div = document.createElement("div");
+        div.className = "slot" + (isCurrent ? " current" : "");
+        div.innerHTML = `
+          <div class="slot-type">Slot ${escapeHtml(slotId)}</div>
+          <div class="slot-duration">${finalDurationMs !== null ? finalDurationMs.toFixed(0) : "--"} ms</div>
+          <div class="slot-node">${escapeHtml(status === "free" ? "空闲" : nodeMac)}</div>
+          <div class="slot-status">${icon}</div>
+        `;
+        slotGrid.appendChild(div);
+      });
+    }
+
+    /*
+     * 拓扑图：把节点画成圆圈，把 self_mac 和 neighbors 用线连接。
+     * RSSI 越强（例如 -44 dBm），线越短；RSSI 越弱（例如 -80 dBm），线越长。
+     * 重要：空数组不刷新，避免 esp32/status 里的 nodes: [] 覆盖上一条有效拓扑。
+     */
+    function updateTopology(data) {
+      if (isEmptyTopologyData(data)) {
+        appendLog("esp32/topology", "忽略空拓扑", JSON.stringify(data), getReceiveTime());
+        return;
+      }
+
+      const graph = buildTopologyGraph(data);
+      if (!graph || !graph.nodes.length) {
+        showTopologyMessage("已收到拓扑 topic，但字段格式未识别", JSON.stringify(data));
+        return;
+      }
+
+      renderTopologyGraph(graph.nodes, graph.links);
+    }
+
+    function isEmptyTopologyData(data) {
+      if (Array.isArray(data) && data.length === 0) return true;
+      if (data && Array.isArray(data.nodes) && data.nodes.length === 0) return true;
+      if (data && Array.isArray(data.topology) && data.topology.length === 0) return true;
+      return false;
+    }
+
+    function showTopologyMessage(title, detail) {
+      topologyChart.clear();
+      topologyChart.setOption({
+        backgroundColor: "transparent",
+        graphic: [
+          {
+            type: "text",
+            left: 22,
+            top: 24,
+            style: {
+              text: title + (detail ? "\n" + detail : ""),
+              fill: "rgba(37, 99, 235, 0.18)",
+              font: "14px Microsoft YaHei",
+              width: 700,
+              overflow: "break"
+            }
+          }
+        ]
+      });
+    }
+
+    function buildTopologyGraph(data) {
+      if (data && data.topology && typeof data.topology === "object" && !Array.isArray(data.topology)) {
+        return buildGraphFromTree(normalizeTopoNode(data.topology));
+      }
+
+      if (data && (data.self_mac || data.mac || data.node_mac || data.node_id)) {
+        return buildGraphFromSingleNode(normalizeTopoNode(data));
+      }
+
+      let nodes = [];
+      if (Array.isArray(data)) {
+        nodes = data;
+      } else if (Array.isArray(data.nodes)) {
+        nodes = data.nodes;
+      } else if (Array.isArray(data.topology)) {
+        nodes = data.topology;
+      }
+
+      if (!nodes.length) return { nodes: [], links: [] };
+      return buildGraphFromNodeArray(nodes.map((n, index) => normalizeTopoNode(n, "node_" + index)));
+    }
+
+    function normalizeTopoNode(n, fallbackMac) {
+      const mac = valueOf(n, ["self_mac", "mac", "node_mac"], fallbackMac || valueOf(n, ["node_id"], "--"));
+      const parentRaw = valueOf(n, ["parent_mac", "parent"], "");
+      const parentMac = parentRaw === null ? "" : String(parentRaw || "");
+
+      return {
+        role: valueOf(n, ["role"], null),
+        node_id: valueOf(n, ["node_id"], mac),
+        mac: mac,
+        parent_mac: parentMac,
+        hop: valueOf(n, ["hop_count", "hop"], "--"),
+        rssi: valueOf(n, ["rssi"], "—"),
+        neighbors: Array.isArray(n.neighbors) ? n.neighbors : [],
+        children: Array.isArray(n.children) ? n.children.map(child => normalizeTopoNode(child)) : []
+      };
+    }
+
+    function normalizeNeighborNode(neighbor) {
+      const mac = valueOf(neighbor, ["mac", "self_mac", "node_mac"], "--");
+      return {
+        role: valueOf(neighbor, ["is_parent"], false) ? "父节点" : "邻居节点",
+        node_id: mac,
+        mac: mac,
+        parent_mac: "",
+        hop: valueOf(neighbor, ["hop_count", "hop"], "--"),
+        rssi: valueOf(neighbor, ["rssi"], "—"),
+        is_parent: valueOf(neighbor, ["is_parent"], false),
+        children: [],
+        neighbors: []
+      };
+    }
+
+    function rssiToDistance(rssiValue) {
+      const rssi = Number(rssiValue);
+      if (!Number.isFinite(rssi)) return 260;
+
+      // 限制范围，避免极端值把图拉得太夸张。
+      // -35 dBm 很强，对应短线；-90 dBm 很弱，对应长线。
+      const clamped = Math.max(-90, Math.min(-35, rssi));
+      const ratio = (Math.abs(clamped) - 35) / (90 - 35);
+      return 90 + ratio * 260;
+    }
+
+    function getRssiLevelText(rssiValue) {
+      const rssi = Number(rssiValue);
+      if (!Number.isFinite(rssi)) return "信号未知";
+      if (rssi >= -50) return "信号强";
+      if (rssi >= -70) return "信号中等";
+      if (rssi >= -85) return "信号较弱";
+      return "信号很弱";
+    }
+
+    function normalizeMacKey(mac) {
+      return String(mac || "").trim().toUpperCase();
+    }
+
+    function isInvalidParentMac(mac) {
+      const key = normalizeMacKey(mac);
+      return !key || key === "NULL" || key === "--" || key === "00:00:00:00:00:00";
+    }
+
+    function findParentRssi(node) {
+      if (!node || isInvalidParentMac(node.parent_mac) || !Array.isArray(node.neighbors)) return null;
+      const parentKey = normalizeMacKey(node.parent_mac);
+      const parentNeighbor = node.neighbors.find(function (neighbor) {
+        const neighborMac = valueOf(neighbor, ["mac", "self_mac", "node_mac"], "");
+        return normalizeMacKey(neighborMac) === parentKey || valueOf(neighbor, ["is_parent"], false) === true;
+      });
+      if (!parentNeighbor) return null;
+      const rssi = valueOf(parentNeighbor, ["rssi", "parent_rssi", "link_rssi"], null);
+      return rssi === null || rssi === undefined || rssi === "" ? null : rssi;
+    }
+
+    function findRssiToMac(node, targetMac) {
+      if (!node || !targetMac) return null;
+
+      const directRssi = valueOf(node, ["rssi", "parent_rssi", "link_rssi"], null);
+      if (directRssi !== null && directRssi !== undefined && directRssi !== "" && directRssi !== "—") {
+        return directRssi;
+      }
+
+      const targetKey = normalizeMacKey(targetMac);
+      const neighbors = Array.isArray(node.neighbors) ? node.neighbors : [];
+      const matched = neighbors.find(function (neighbor) {
+        const neighborMac = valueOf(neighbor, ["mac", "self_mac", "node_mac"], "");
+        return normalizeMacKey(neighborMac) === targetKey || valueOf(neighbor, ["is_parent"], false) === true;
+      });
+
+      if (!matched) return null;
+      const rssi = valueOf(matched, ["rssi", "parent_rssi", "link_rssi"], null);
+      return rssi === null || rssi === undefined || rssi === "" ? null : rssi;
+    }
+
+    function makeUndirectedLinkKey(sourceMac, targetMac) {
+      const a = normalizeMacKey(sourceMac);
+      const b = normalizeMacKey(targetMac);
+      return [a, b].sort().join("<->");
+    }
+
+    function collectKnownMacSet(root) {
+      const set = new Set();
+      function collect(node) {
+        if (!node || !node.mac) return;
+        const key = normalizeMacKey(node.mac);
+        if (set.has(key)) return;
+        set.add(key);
+        const children = Array.isArray(node.children) ? node.children : [];
+        children.forEach(collect);
+      }
+      collect(root);
+      return set;
+    }
+
+    function buildGraphFromSingleNode(root) {
+      const centerX = 500;
+      const centerY = 160;
+      const nodes = [];
+      const links = [];
+      const usedMacSet = new Set();
+      const linkSet = new Set();
+
+      nodes.push(makeGraphNode(root, centerX, centerY, true));
+      usedMacSet.add(normalizeMacKey(root.mac));
+
+      const neighbors = Array.isArray(root.neighbors)
+        ? root.neighbors.map(normalizeNeighborNode).filter(function (n) {
+            const key = normalizeMacKey(n.mac);
+            return key && key !== normalizeMacKey(root.mac) && !usedMacSet.has(key);
+          })
+        : [];
+      const count = neighbors.length;
+
+      neighbors.forEach(function (n, index) {
+        const angle = count === 1
+          ? 0
+          : (-Math.PI / 2 + (2 * Math.PI * index) / count);
+        const distance = rssiToDistance(n.rssi);
+        const x = centerX + Math.cos(angle) * distance;
+        const y = centerY + Math.sin(angle) * distance;
+
+        nodes.push(makeGraphNode(n, x, y, false));
+        usedMacSet.add(normalizeMacKey(n.mac));
+
+        const linkKey = makeUndirectedLinkKey(root.mac, n.mac);
+        if (!linkSet.has(linkKey)) {
+          linkSet.add(linkKey);
+          links.push(makeGraphLink(root.mac, n.mac, n.rssi, n.is_parent ? "父节点" : "邻居"));
+        }
+      });
+
+      return { nodes, links };
+    }
+
+    function buildGraphFromTree(root) {
+      const nodes = [];
+      const links = [];
+      const centerX = 500;
+      const centerY = 160;
+      const knownMacSet = collectKnownMacSet(root);
+      const addedNodeSet = new Set();
+      const linkSet = new Set();
+
+      function pushLinkOnce(sourceMac, targetMac, rssi, relation) {
+        if (!sourceMac || !targetMac) return;
+        if (normalizeMacKey(sourceMac) === normalizeMacKey(targetMac)) return;
+        const key = makeUndirectedLinkKey(sourceMac, targetMac);
+        if (linkSet.has(key)) return;
+        linkSet.add(key);
+        links.push(makeGraphLink(sourceMac, targetMac, rssi, relation));
+      }
+
+      function walk(node, x, y, level, angleStart, angleEnd, parentMac) {
+        const nodeKey = normalizeMacKey(node.mac);
+        const alreadyAdded = addedNodeSet.has(nodeKey);
+
+        if (!alreadyAdded) {
+          nodes.push(makeGraphNode(node, x, y, level === 0));
+          addedNodeSet.add(nodeKey);
+        }
+
+        if (parentMac) {
+          const parentLinkRssi = findRssiToMac(node, parentMac);
+          pushLinkOnce(parentMac, node.mac, parentLinkRssi !== null ? parentLinkRssi : node.rssi, "子节点");
+        }
+
+        // children 是完整节点；neighbors 只是邻居表。
+        // 如果 neighbor 的 MAC 已经存在于完整 nodes/children 里，不能再创建一个绿色节点，
+        // 否则网关会被终端 neighbors 里的 parent_mac 重复画成“蓝色网关 + 绿色邻居”。
+        const children = Array.isArray(node.children) ? node.children : [];
+        const childMacSet = new Set(children.map(function (child) { return normalizeMacKey(child.mac); }));
+        const neighbors = Array.isArray(node.neighbors) ? node.neighbors.map(normalizeNeighborNode) : [];
+        const filteredNeighbors = neighbors.filter(function (neighbor) {
+          const neighborKey = normalizeMacKey(neighbor.mac);
+          if (!neighborKey || neighborKey === nodeKey) return false;
+          if (parentMac && neighborKey === normalizeMacKey(parentMac)) return false;
+          if (childMacSet.has(neighborKey)) return false;
+          return true;
+        });
+
+        const all = children.concat(filteredNeighbors);
+        const count = all.length;
+        if (!count) return;
+
+        all.forEach(function (child, index) {
+          const childKey = normalizeMacKey(child.mac);
+
+          /*
+           * 防重合修改：
+           * 原来使用 angleStart 到 angleEnd 的闭区间分布：
+           *   index = 0 时角度是 -π，最后一个节点角度是 +π。
+           * 但 -π 和 +π 在圆上是同一个方向，所以当直属节点数量为 3、5 等情况时，
+           * 最左侧会出现两个节点坐标几乎完全重合。
+           *
+           * 现在改为“取每个扇区中点”的方式，不再取闭区间两个端点，
+           * 可以避免 -π 和 +π 落在同一条射线上。
+           */
+          const angle = count === 1
+            ? 0
+            : angleStart + ((angleEnd - angleStart) * (index + 0.5)) / count;
+
+          const distance = rssiToDistance(child.rssi);
+
+          // 限制坐标范围，避免节点被挤到面板边缘导致文字互相压住。
+          const rawChildX = x + Math.cos(angle) * distance;
+          const rawChildY = y + Math.sin(angle) * distance;
+          const childX = Math.max(80, Math.min(920, rawChildX));
+          const childY = Math.max(80, Math.min(260, rawChildY));
+
+          if (knownMacSet.has(childKey) && addedNodeSet.has(childKey)) {
+            const linkRssi = findRssiToMac(node, child.mac);
+            pushLinkOnce(node.mac, child.mac, linkRssi !== null ? linkRssi : child.rssi, child.is_parent ? "父节点" : "邻居");
+            return;
+          }
+
+          if (!knownMacSet.has(childKey)) {
+            knownMacSet.add(childKey);
+          }
+
+          walk(child, childX, childY, level + 1, angle - 0.8, angle + 0.8, node.mac);
+        });
+      }
+
+      walk(root, centerX, centerY, 0, -Math.PI, Math.PI, null);
+      return { nodes, links };
+    }
+
+    function buildGraphFromNodeArray(rawNodes) {
+      const map = {};
+      rawNodes.forEach(function (n) {
+        if (!n || !n.mac) return;
+        const key = normalizeMacKey(n.mac);
+        if (!key || key === "--") return;
+        const parentRssi = findParentRssi(n);
+        map[key] = {
+          ...n,
+          mac: key,
+          parent_mac: isInvalidParentMac(n.parent_mac) ? "" : normalizeMacKey(n.parent_mac),
+          rssi: parentRssi !== null ? parentRssi : n.rssi,
+          children: []
+        };
+      });
+
+      const keys = Object.keys(map);
+      if (!keys.length) return { nodes: [], links: [] };
+
+      let root = null;
+      for (const key of keys) {
+        const node = map[key];
+        if (isInvalidParentMac(node.parent_mac) || node.hop === 0 || node.hop === "0") {
+          root = node;
+          break;
+        }
+      }
+      if (!root) root = map[keys[0]];
+
+      for (const key of keys) {
+        const node = map[key];
+        if (node === root) continue;
+        const parentKey = normalizeMacKey(node.parent_mac);
+        if (parentKey && map[parentKey]) {
+          map[parentKey].children.push(node);
+        } else {
+          root.children.push(node);
+        }
+      }
+
+      return buildGraphFromTree(root);
+    }
+
+    function makeGraphNode(node, x, y, isRoot) {
+      const role = valueOf(node, ["role"], isRoot || node.hop === 0 || node.hop === "0" ? "网关" : "节点");
+      const rssi = valueOf(node, ["rssi"], "—");
+      const hop = valueOf(node, ["hop", "hop_count"], "--");
+      const mac = valueOf(node, ["mac", "self_mac"], "--");
+
+      return {
+        id: mac,
+        name: isRoot ? "网关" : shortMac(mac),
+        x: x,
+        y: y,
+        symbolSize: isRoot ? 76 : 64,
+        value: rssi,
+        category: isRoot ? 0 : 1,
+        label: {
+          show: true,
+          color: "#ffffff",
+          formatter: function () {
+            return (isRoot ? "网关" : shortMac(mac)) + "\n" + hop + "跳";
+          }
+        },
+        tooltip: {
+          formatter: function () {
+            return [
+              role + "：" + mac,
+              "RSSI：" + rssi + " dBm",
+              "跳数：" + hop,
+              "信号质量：" + getRssiLevelText(rssi)
+            ].join("<br>");
+          }
+        },
+        itemStyle: {
+          color: isRoot ? "#3b82f6" : "#22c55e",
+          borderColor: "#0f172a",
+          borderWidth: 2
+        }
+      };
+    }
+
+    function makeGraphLink(sourceMac, targetMac, rssi, relation) {
+      const distance = rssiToDistance(rssi);
+      return {
+        source: sourceMac,
+        target: targetMac,
+        value: rssi,
+        label: {
+          show: true,
+          color: "rgba(37, 99, 235, 0.18)",
+          formatter: String(rssi) + " dBm",
+          fontWeight: 900,
+          backgroundColor: "rgba(255,255,255,0.78)",
+          borderRadius: 6,
+          padding: [2, 6]
+        },
+        lineStyle: {
+          width: relation === "父节点" ? 4 : 2,
+          curveness: 0.04,
+          opacity: 0.9
+        },
+        tooltip: {
+          formatter: [
+            "链路：" + shortMac(sourceMac) + " → " + shortMac(targetMac),
+            "RSSI：" + rssi + " dBm",
+            "显示距离：" + distance.toFixed(0) + " px",
+            "关系：" + relation
+          ].join("<br>")
+        }
+      };
+    }
+
+    function shortMac(mac) {
+      const s = String(mac || "--");
+      if (s.length <= 8) return s;
+      return s.slice(-8);
+    }
+
+    function renderTopologyGraph(nodes, links) {
+      topologyChart.clear();
+      topologyChart.setOption({
+        backgroundColor: "transparent",
+        tooltip: {
+          trigger: "item",
+          backgroundColor: "#ffffff",
+          borderColor: "rgba(37, 99, 235, 0.18)",
+          textStyle: { color: "#0f172a" }
+        },
+        legend: {
+        type: "scroll",
+          top: 0,
+          left: 0,
+          data: ["网关", "节点/邻居"],
+          textStyle: { color: "rgba(37, 99, 235, 0.18)" }
+        },
+        series: [
+          {
+            type: "graph",
+            layout: "none",
+            roam: true,
+            draggable: true,
+            categories: [
+              { name: "网关" },
+              { name: "节点/邻居" }
+            ],
+            data: nodes,
+            links: links,
+            edgeSymbol: ["none", "arrow"],
+            edgeSymbolSize: [0, 8],
+            label: {
+              position: "inside",
+              fontSize: 11,
+              fontWeight: 700
+            },
+            lineStyle: {
+              color: "#64748b"
+            },
+            emphasis: {
+              focus: "adjacency",
+              lineStyle: { width: 5 }
+            }
+          }
+        ]
+      }, true);
+    }
+
+    function updateNodeTable(nodes) {
+      const tbody = document.getElementById("nodeTableBody");
+      tbody.innerHTML = "";
+
+      if (!Array.isArray(nodes) || !nodes.length) {
+        renderNodeTableFromMap();
+        return;
+      }
+
+      nodes.forEach(function (node) {
+        const mac = valueOf(node, ["self_mac", "mac", "node_mac"], "--");
+        const hop = valueOf(node, ["hop_count", "hop"], "--");
+        const isGateway = hop === 0 || hop === "0";
+        const role = valueOf(node, ["role"], isGateway ? "网关" : "终端");
+        const nodeId = valueOf(node, ["node_id"], mac !== "--" ? "node_" + String(mac).slice(-2) : "--");
+        const rssi = valueOf(node, ["rssi"], Array.isArray(node.neighbors) && node.neighbors[0] ? node.neighbors[0].rssi : "—");
+        const slot = valueOf(node, ["slot", "slot_id"], "--");
+        const batteryMv = valueOf(node, ["battery_mv", "batt_mv"], "--");
+        const batteryText = batteryMv === "--" ? "--" : (Number(batteryMv) / 1000).toFixed(2) + " V";
+        const status = isGateway ? "根节点" : "同步";
+
+        latestNodes.set(nodeId, { role, node_id: nodeId, mac, rssi, hop, slot, battery_mv: batteryMv, status });
+      });
+
+      renderNodeTableFromMap();
+    }
+
+    function renderNodeTableFromMap() {
+      const tbody = document.getElementById("nodeTableBody");
+      tbody.innerHTML = "";
+
+      if (!latestNodes.size) {
+        tbody.innerHTML = `<tr><td colspan="8">等待 esp32/status 或 esp32/data 数据...</td></tr>`;
+        return;
+      }
+
+      latestNodes.forEach(function (node) {
+        const batt = node.battery_mv;
+        const batteryText =
+          batt === undefined || batt === null || batt === "--" || Number(batt) <= 0
+            ? "--"
+            : (Number(batt) / 1000).toFixed(2) + " V";
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${escapeHtml(node.role || "--")}</td>
+          <td>${escapeHtml(node.node_id || "--")}</td>
+          <td>${escapeHtml(node.mac || "--")}</td>
+          <td>${escapeHtml(node.rssi ?? "—")}</td>
+          <td>${escapeHtml(node.hop ?? "--")}</td>
+          <td>${escapeHtml(node.slot ?? "--")}</td>
+          <td>${escapeHtml(batteryText)}</td>
+          <td>${escapeHtml(node.status || "正常")}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function appendLog(topic, action, detail, recvTime) {
+      const box = document.getElementById("securityLog");
+
+      if (box.innerText === "等待 MQTT 数据...") {
+        box.innerHTML = "";
+      }
+
+      let shortDetail = String(detail ?? "");
+      if (shortDetail.length > 220) {
+        shortDetail = shortDetail.slice(0, 220) + "...";
+      }
+
+      const line = document.createElement("div");
+      line.className = "log-line";
+      line.innerText = `[${recvTime}] ${topic} | ${action} | ${shortDetail}`;
+
+      box.appendChild(line);
+      box.scrollTop = box.scrollHeight;
+
+      while (box.children.length > 40) {
+        box.removeChild(box.firstChild);
+      }
+    }
+
+    window.addEventListener("resize", function () {
+      sensorChart.resize();
+      powerChart.resize();
+      topologyChart.resize();
+    });
+  </script>
+</body>
+</html>
